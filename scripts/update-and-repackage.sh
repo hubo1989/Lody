@@ -77,7 +77,14 @@ git submodule update --init --recursive
 
 # --- 3. dependencies ----------------------------------------------------------
 LOCK_CHANGED="$(git status --porcelain -- pnpm-lock.yaml | wc -l | tr -d ' ')"
-if [ "$LOCK_CHANGED" != "0" ] || [ ! -d node_modules ]; then
+# Submodule packages (ACP adapters) only get node_modules during install;
+# a submodule initialized after the last install must trigger a reinstall.
+SUBMOD_DEPS_MISSING=0
+for mod_dir in packages/acp-extension-*; do
+  [ -f "$mod_dir/package.json" ] || continue
+  [ -d "$mod_dir/node_modules" ] || { SUBMOD_DEPS_MISSING=1; break; }
+done
+if [ "$LOCK_CHANGED" != "0" ] || [ ! -d node_modules ] || [ "$SUBMOD_DEPS_MISSING" = "1" ]; then
   log "(re)installing dependencies..."
   pnpm install --frozen-lockfile
 else
