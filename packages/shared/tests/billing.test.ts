@@ -10,7 +10,19 @@ import {
 } from '../src/billing';
 import { shouldBypassSessionQuota } from '../src/session-orchestration';
 
-describe('evaluateBillingQuota', () => {
+/**
+ * Fork compat layer: the stock quota assertions below are wrapped in
+ * `describe.skipIf` so the same suite verifies both modes:
+ *
+ *   default (no env)            -> compat layer active, every quota admits
+ *   LODY_QUOTA_LIMITS=billing   -> stock upstream gating behavior
+ *
+ * Upstream edits to these cases keep merging cleanly; only this wrapper
+ * comment and the compat-only describe block are fork-local.
+ */
+const STOCK_QUOTAS = process.env.LODY_QUOTA_LIMITS === 'billing';
+
+describe.skipIf(!STOCK_QUOTAS)('evaluateBillingQuota', () => {
   it('blocks known free plans at the limit', () => {
     expect(
       evaluateBillingQuota({
@@ -63,6 +75,36 @@ describe('evaluateBillingQuota', () => {
   });
 });
 
+describe.skipIf(STOCK_QUOTAS)('evaluateBillingQuota (compat layer)', () => {
+  it('admits every tier regardless of the count', () => {
+    expect(
+      evaluateBillingQuota({
+        effectivePlanTier: 'free',
+        current: FREE_SESSION_TURN_LIMIT + 10,
+        limit: FREE_SESSION_TURN_LIMIT,
+      })
+    ).toEqual({ allowed: true });
+    expect(
+      evaluateBillingQuota({
+        effectivePlanTier: undefined,
+        current: Number.MAX_SAFE_INTEGER,
+        limit: FREE_SESSION_TURN_LIMIT,
+      })
+    ).toEqual({ allowed: true });
+  });
+
+  it('admits even with checkout pending', () => {
+    expect(
+      evaluateBillingQuota({
+        effectivePlanTier: 'free',
+        checkoutPending: true,
+        current: 0,
+        limit: FREE_SESSION_TURN_LIMIT,
+      })
+    ).toEqual({ allowed: true });
+  });
+});
+
 describe('formatSessionQuotaRejection', () => {
   it('keeps create and turn quota copy centralized', () => {
     expect(
@@ -93,7 +135,7 @@ describe('shouldBypassSessionQuota', () => {
   });
 });
 
-describe('evaluateSessionCreateQuota', () => {
+describe.skipIf(!STOCK_QUOTAS)('evaluateSessionCreateQuota', () => {
   it('fails the count-based cap open while the session index has not hydrated', () => {
     expect(
       evaluateSessionCreateQuota({ effectivePlanTier: 'free', sessionCount: null })
@@ -130,13 +172,56 @@ describe('evaluateSessionCreateQuota', () => {
   });
 });
 
-describe('isBillingQuotaExempt', () => {
+describe.skipIf(STOCK_QUOTAS)('evaluateSessionCreateQuota (compat layer)', () => {
+  it('admits regardless of hydration or count', () => {
+    expect(
+      evaluateSessionCreateQuota({ effectivePlanTier: 'free', sessionCount: null })
+    ).toEqual({ allowed: true });
+    expect(
+      evaluateSessionCreateQuota({
+        effectivePlanTier: 'free',
+        sessionCount: FREE_SESSION_LIMIT_PER_WORKSPACE + 1,
+      })
+    ).toEqual({ allowed: true });
+    expect(
+      evaluateSessionCreateQuota({
+        effectivePlanTier: 'free',
+        checkoutPending: true,
+        sessionCount: 0,
+      })
+    ).toEqual({ allowed: true });
+  });
+});
+
+describe.skipIf(!STOCK_QUOTAS)('isBillingQuotaExempt', () => {
   it('exempts only paid workspaces with no pending checkout', () => {
     expect(isBillingQuotaExempt({ effectivePlanTier: 'plus' })).toBe(true);
     expect(isBillingQuotaExempt({ effectivePlanTier: 'plus', checkoutPending: true })).toBe(false);
     expect(isBillingQuotaExempt({ effectivePlanTier: 'free' })).toBe(false);
     // Unknown entitlement fails open, matching evaluateBillingQuota.
     expect(isBillingQuotaExempt({ effectivePlanTier: undefined })).toBe(true);
+  });
+});
+
+describe.skipIf(STOCK_QUOTAS)('isBillingQuotaExempt (compat layer)', () => {
+  it('exempts every workspace', () => {
+    expect(isBillingQuotaExempt({ effectivePlanTier: 'free' })).toBe(true);
+    expect(isBillingQuotaExempt({ effectivePlanTier: 'plus', checkoutPending: true })).toBe(true);
+    expect(isBillingQuotaExempt({ effectivePlanTier: undefined })).toBe(true);
+  });
+});
+
+describe.skipIf(!STOCK_QUOTAS)('free quota constants', () => {
+  it('keeps the stock caps', () => {
+    expect(FREE_SESSION_LIMIT_PER_WORKSPACE).toBe(200);
+    expect(FREE_SESSION_TURN_LIMIT).toBe(30);
+  });
+});
+
+describe.skipIf(STOCK_QUOTAS)('free quota constants (compat layer)', () => {
+  it('raises the caps beyond practical counts', () => {
+    expect(FREE_SESSION_LIMIT_PER_WORKSPACE).toBeGreaterThan(1_000_000);
+    expect(FREE_SESSION_TURN_LIMIT).toBeGreaterThan(1_000_000);
   });
 });
 
