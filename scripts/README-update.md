@@ -44,3 +44,20 @@ Local builds are ad-hoc signed (no Developer ID): Gatekeeper warning on first
 launch only, Sparkle notarization is skipped by electron-builder automatically
 without `CSC_LINK`/`CSC_NAME`. The script strips the quarantine attribute so
 the ad-hoc signature is accepted directly.
+
+## Detect-only watcher
+
+`check-upstream.sh` is a read-only watcher (launchd: `com.hubo.lody-fork-check`,
+runs 10:00 / 16:00 / 22:00). It fetches upstream, and only when `origin/main`
+is actually **behind** `upstream/main` posts a macOS notification. It never
+merges or builds. When notified, run `scripts/update-and-repackage.sh`.
+Log: `~/Library/Logs/lody-fork-check.log`.
+
+## Why not GitHub Actions?
+
+A CI build cannot sign with this machine's Apple Development identity
+(`hubo1989@yandex.com`); it would produce an unsigned/ad-hoc DMG that
+Gatekeeper flags and that macOS refuses to relaunch cleanly after an in-place
+update. Exporting the signing key to CI secrets is possible but fragile and
+against most org policies. Building locally keeps the existing signature path
+and costs ~10 minutes on demand.
